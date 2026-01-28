@@ -7,6 +7,7 @@
 const OUTPUT_WIDTH = 1080;
 const OUTPUT_HEIGHT = 1920;
 const JPEG_QUALITY = 0.9;
+const BLUR_AMOUNT = 30; // 背景ぼかし量（px）
 
 // バリデーション定数
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -99,7 +100,7 @@ function validateDimensions(
 }
 
 /**
- * 画像を1080x1920に変換（中央基準トリミング）
+ * 画像を1080x1920に変換（背景ぼかし + 全体表示）
  */
 function convertToStorySize(bitmap: ImageBitmap): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
@@ -119,33 +120,67 @@ function convertToStorySize(bitmap: ImageBitmap): HTMLCanvasElement {
   // 入力アスペクト比
   const inputAspect = sourceWidth / sourceHeight;
 
-  let srcX: number, srcY: number, srcWidth: number, srcHeight: number;
+  // === 背景レイヤー（ぼかし） ===
+  // 短辺基準でスケールし、1080x1920を完全に覆う
+  let bgSrcX: number, bgSrcY: number, bgSrcWidth: number, bgSrcHeight: number;
 
   if (inputAspect > outputAspect) {
-    // 入力画像が横長 → 高さ基準でスケール、左右をトリム
-    srcHeight = sourceHeight;
-    srcWidth = sourceHeight * outputAspect;
-    srcX = (sourceWidth - srcWidth) / 2;
-    srcY = 0;
+    // 入力が横長 → 高さ基準、左右トリム
+    bgSrcHeight = sourceHeight;
+    bgSrcWidth = sourceHeight * outputAspect;
+    bgSrcX = (sourceWidth - bgSrcWidth) / 2;
+    bgSrcY = 0;
   } else {
-    // 入力画像が縦長 → 幅基準でスケール、上下をトリム
-    srcWidth = sourceWidth;
-    srcHeight = sourceWidth / outputAspect;
-    srcX = 0;
-    srcY = (sourceHeight - srcHeight) / 2;
+    // 入力が縦長 → 幅基準、上下トリム
+    bgSrcWidth = sourceWidth;
+    bgSrcHeight = sourceWidth / outputAspect;
+    bgSrcX = 0;
+    bgSrcY = (sourceHeight - bgSrcHeight) / 2;
   }
 
-  // 描画（リサイズ＋トリミング）
+  // ぼかしフィルター適用して背景描画
+  ctx.filter = `blur(${BLUR_AMOUNT}px)`;
   ctx.drawImage(
     bitmap,
-    srcX,
-    srcY,
-    srcWidth,
-    srcHeight,
+    bgSrcX,
+    bgSrcY,
+    bgSrcWidth,
+    bgSrcHeight,
+    -BLUR_AMOUNT, // ぼかしによる端の透明部分を補うためにはみ出し描画
+    -BLUR_AMOUNT,
+    OUTPUT_WIDTH + BLUR_AMOUNT * 2,
+    OUTPUT_HEIGHT + BLUR_AMOUNT * 2
+  );
+  ctx.filter = "none";
+
+  // === 前景レイヤー（全体表示） ===
+  // 長辺基準でスケールし、画像全体が1080x1920内に収まるように
+  let fgDestWidth: number, fgDestHeight: number;
+
+  if (inputAspect > outputAspect) {
+    // 入力が横長 → 幅基準でフィット
+    fgDestWidth = OUTPUT_WIDTH;
+    fgDestHeight = OUTPUT_WIDTH / inputAspect;
+  } else {
+    // 入力が縦長 → 高さ基準でフィット
+    fgDestHeight = OUTPUT_HEIGHT;
+    fgDestWidth = OUTPUT_HEIGHT * inputAspect;
+  }
+
+  // 中央配置
+  const fgDestX = (OUTPUT_WIDTH - fgDestWidth) / 2;
+  const fgDestY = (OUTPUT_HEIGHT - fgDestHeight) / 2;
+
+  ctx.drawImage(
+    bitmap,
     0,
     0,
-    OUTPUT_WIDTH,
-    OUTPUT_HEIGHT
+    sourceWidth,
+    sourceHeight,
+    fgDestX,
+    fgDestY,
+    fgDestWidth,
+    fgDestHeight
   );
 
   return canvas;
